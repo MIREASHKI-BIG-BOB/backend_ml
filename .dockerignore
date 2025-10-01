@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Данные (слишком большие для образа)
+hypoxia/
+regular/
+test/
+*.csv
+!mean_*.csv
+
+# Документация
+README.md
+API_GUIDE.md
+
+# Разное
+.DS_Store
+*.log
+

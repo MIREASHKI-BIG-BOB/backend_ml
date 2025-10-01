@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from analysis import LiveCTGAnalyzer
+from config import config
 
 # Настройка логирования
 logging.basicConfig(
@@ -248,9 +249,9 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=8081,
-        reload=True,
-        log_level="info"
+        host=config.HOST,
+        port=config.PORT,
+        reload=config.RELOAD,
+        log_level=config.LOG_LEVEL.lower()
     )
 

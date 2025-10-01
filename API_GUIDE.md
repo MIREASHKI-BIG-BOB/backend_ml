@@ -43,7 +43,7 @@ Default endpoint: `ws://localhost:8000/ws/ctg`
     "spasms": 0.0
   },
   "prediction": {
-    "hypoxia_probability": 0.23,
+    "hypoxia_pro
     "hypoxia_risk": "low",
     "alerts": [
       "🟡 Низкая вариабельность: 4.2 bpm"
@@ -60,45 +60,47 @@ Default endpoint: `ws://localhost:8000/ws/ctg`
 
 ### Response Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `sensorID` | string | Sensor identifier (echoed from request) |
-| `secFromStart` | float | Time in seconds (echoed from request) |
-| `data` | object | Sensor data (echoed from request) |
-| `prediction` | object\|null | Prediction result (null if insufficient data) |
-| `status` | string | Response status: `ok`, `warning`, `critical`, `error` |
-| `timestamp` | string | ISO 8601 timestamp |
+| Field          | Type         | Description                                           |
+| -------------- | ------------ | ----------------------------------------------------- |
+| `sensorID`     | string       | Sensor identifier (echoed from request)               |
+| `secFromStart` | float        | Time in seconds (echoed from request)                 |
+| `data`         | object       | Sensor data (echoed from request)                     |
+| `prediction`   | object\|null | Prediction result (null if insufficient data)         |
+| `status`       | string       | Response status: `ok`, `warning`, `critical`, `error` |
+| `timestamp`    | string       | ISO 8601 timestamp                                    |
 
 ### Prediction Object
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `hypoxia_probability` | float | Hypoxia probability [0.0-1.0] |
-| `hypoxia_risk` | string | Risk level: `low`, `medium`, `high`, `critical` |
-| `alerts` | string[] | Clinical alerts |
-| `confidence` | float | Model confidence [0.0-1.0] |
-| `recommendations` | string[] | Medical recommendations |
+| Field                 | Type     | Description                                     |
+| --------------------- | -------- | ----------------------------------------------- |
+| `hypoxia_probability` | float    | Hypoxia probability [0.0-1.0]                   |
+| `hypoxia_risk`        | string   | Risk level: `low`, `medium`, `high`, `critical` |
+| `alerts`              | string[] | Clinical alerts                                 |
+| `confidence`          | float    | Model confidence [0.0-1.0]                      |
+| `recommendations`     | string[] | Medical recommendations                         |
 
 ## Behavior
 
 ### Data Accumulation
+
 - Minimum 5 minutes of data required for initial prediction
 - Sliding window of 10 minutes used for analysis
 - Predictions generated every 30 seconds
 
 ### Validation
+
 - Valid FHR range: 80-200 bpm
 - Invalid data points are filtered automatically
 - Prediction returns null if insufficient valid data
 
 ### Risk Levels
 
-| Probability | Level | Status Code |
-|-------------|-------|-------------|
-| 0.0 - 0.3 | low | ok |
-| 0.3 - 0.5 | medium | ok |
-| 0.5 - 0.8 | high | warning |
-| 0.8 - 1.0 | critical | critical |
+| Probability | Level    | Status Code |
+| ----------- | -------- | ----------- |
+| 0.0 - 0.3   | low      | ok          |
+| 0.3 - 0.5   | medium   | ok          |
+| 0.5 - 0.8   | high     | warning     |
+| 0.8 - 1.0   | critical | critical    |
 
 ## HTTP Endpoints
 
@@ -110,10 +112,12 @@ Default endpoint: `ws://localhost:8000/ws/ctg`
 ## Configuration
 
 Required files:
+
 - `hypoxia_model.joblib` - Trained ML model
 - `.env` - Environment variables (optional)
 
 Key parameters in `.env`:
+
 ```
 PORT=8000
 MODEL_PATH=hypoxia_model.joblib
@@ -124,11 +128,13 @@ SAMPLING_FREQUENCY=4
 ## Integration Requirements
 
 ### Data Stream
+
 - Sampling rate: 4 Hz (one measurement per 0.25 seconds)
 - FHR valid range: 80-200 bpm
 - Continuous stream required for accurate predictions
 
 ### Session Management
+
 - One WebSocket connection per sensor
 - Analyzer state persists during connection
 - Automatic cleanup on disconnect
@@ -168,10 +174,10 @@ type ResponseData struct {
 
 ## Error Handling
 
-| Error | Status | Cause |
-|-------|--------|-------|
-| Invalid JSON | error | Malformed request |
-| Model error | error | Prediction failure |
+| Error        | Status  | Cause                         |
+| ------------ | ------- | ----------------------------- |
+| Invalid JSON | error   | Malformed request             |
+| Model error  | error   | Prediction failure            |
 | No valid FHR | warning | All values outside 80-200 bpm |
 
 ## Constraints
@@ -180,4 +186,3 @@ type ResponseData struct {
 - Predictions throttled to 30-second intervals
 - Maximum buffer size: 2x window size (20 minutes at 4 Hz)
 - Per-sensor isolation (no cross-contamination)
-
