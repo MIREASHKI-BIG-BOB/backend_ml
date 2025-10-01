@@ -24,7 +24,7 @@ COPY env.example .env
 # Настраиваем переменные окружения по умолчанию
 # Эти значения будут использоваться, если не переопределены при запуске контейнера
 ENV HOST=0.0.0.0
-ENV PORT=8081
+ENV PORT=8000
 ENV RELOAD=false
 ENV MODEL_PATH=hypoxia_model.joblib
 ENV SAMPLING_FREQUENCY=4
@@ -37,7 +37,7 @@ ENV RISK_CRITICAL_THRESHOLD=0.8
 ENV LOG_LEVEL=INFO
 
 # Открываем порт (используем переменную окружения)
-EXPOSE ${PORT}
+EXPOSE 8000
 
 # Команда запуска приложения
 CMD ["python", "main.py"]
