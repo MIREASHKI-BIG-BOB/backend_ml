@@ -1,13 +1,13 @@
 import os
-import pandas as pd
 import numpy as np
-from sklearn.utils import shuffle  
+import pandas as pd
+from datetime import datetime
+from collections import deque
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
-import joblib  
-
-
+from sklearn.utils import shuffle
+import joblib
 
 
 class CTGDatasetBuilder:
@@ -36,8 +36,6 @@ class CTGDatasetBuilder:
         self.regular_dir = regular_dir
         self.model_path = model_path
         self.model = None
-
-    # ... (все методы _extract_metrics_from_pair, _process_directory, build_train_dataset остаются без изменений)
 
     def train_model(self, dataset_path: str = None, test_size: float = 0.2, random_state: int = 42):
         """
@@ -206,3 +204,173 @@ class CTGDatasetBuilder:
         combined_shuffled.to_csv(output_path, index=False)
         print(f" Датасет сохранён в {output_path} ({len(combined_shuffled)} записей)")
         return combined_shuffled
+
+
+class LiveCTGAnalyzer:
+    """
+    Онлайн-анализатор КТГ с возможностью предсказания гипоксии через ML-модель.
+    """
+
+    FEATURE_COLUMNS = [
+        "mean_bpm",
+        "variability",
+        "accel_per_min",
+        "decel_per_min",
+        "uc_per_min",
+        "base_uc_tone"
+    ]
+
+    def __init__(
+        self,
+        fs=4,
+        window_minutes=10,
+        alert_buffer_sec=30,
+        model_path=None,
+        use_ml_prediction=True
+    ):
+        """
+        :param fs: частота дискретизации (Гц)
+        :param window_minutes: окно анализа (мин)
+        :param alert_buffer_sec: мин. интервал между алертами
+        :param model_path: путь к сохранённой модели (если используется ML)
+        :param use_ml_prediction: использовать ли ML-модель для диагностики
+        """
+        self.fs = fs
+        self.window_samples = int(window_minutes * 60 * fs)
+        self.data = pd.DataFrame(columns=["timestamp", "fhr", "uc"])
+        self.last_alert_time = 0
+        self.alert_buffer_sec = alert_buffer_sec
+        self.window_minutes = window_minutes
+        self.use_ml_prediction = use_ml_prediction
+        self.model = None
+
+        if self.use_ml_prediction:
+            if model_path is None:
+                raise ValueError("Для ML-предсказаний требуется model_path!")
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"Модель не найдена: {model_path}")
+            self.model = joblib.load(model_path)
+            print(f"ML-модель загружена для онлайн-анализа: {model_path}")
+
+    def add_data(self, timestamp, fhr, uc):
+        """Добавить новую точку данных и (опционально) проанализировать."""
+        new_row = pd.DataFrame([{"timestamp": timestamp, "fhr": fhr, "uc": uc}])
+        self.data = pd.concat([self.data, new_row], ignore_index=True)
+
+        # Ограничение памяти
+        if len(self.data) > self.window_samples * 2:
+            self.data = self.data.iloc[-self.window_samples * 2:].reset_index(drop=True)
+
+        # Анализ при достаточном объёме данных
+        if len(self.data) >= int(5 * 60 * self.fs):
+            self._analyze_latest_window()
+
+    def _extract_features_from_window(self, fhr, uc):
+        """Извлекает те же признаки, что и в обучающем датасете."""
+        duration_min = len(fhr) / self.fs / 60.0
+        mean_fhr = np.mean(fhr)
+        variability = np.std(fhr)
+        accel, decel = self._count_accel_decel(fhr)
+        mean_uc = np.mean(uc)
+        uc_per_min = self._count_uc_per_min(uc, duration_min)
+
+        return {
+            "mean_bpm": float(mean_fhr),
+            "variability": float(variability),
+            "accel_per_min": float(accel / duration_min) if duration_min > 0 else 0.0,
+            "decel_per_min": float(decel / duration_min) if duration_min > 0 else 0.0,
+            "uc_per_min": float(uc_per_min),
+            "base_uc_tone": float(mean_uc)
+        }
+
+    def _analyze_latest_window(self):
+        window_sec = self.window_minutes * 60
+        current_time = self.data["timestamp"].iloc[-1]
+        start_time = current_time - window_sec
+        window_data = self.data[self.data["timestamp"] >= start_time].copy()
+
+        if len(window_data) < int(2 * 60 * self.fs):
+            return
+
+        fhr = window_data["fhr"].values
+        uc = window_data["uc"].values
+
+        # Валидация ЧСС
+        valid = (fhr >= 80) & (fhr <= 200)
+        if not np.any(valid):
+            self._trigger_alert("⚠️ Нет валидных данных ЧСС!")
+            return
+
+        fhr = fhr[valid]
+        uc = uc[valid]
+
+        # Извлечение признаков
+        features = self._extract_features_from_window(fhr, uc)
+        feature_vec = np.array([list(features.values())])
+
+        alerts = []
+
+      
+        mean_fhr = features["mean_bpm"]
+        variability = features["variability"]
+        accel_per_min = features["accel_per_min"]
+        mean_uc = features["base_uc_tone"]
+
+        if mean_fhr < 100:
+            alerts.append(f" Брадикардия: {mean_fhr:.1f} уд/мин")
+        if mean_fhr > 180:
+            alerts.append(f" Тахикардия: {mean_fhr:.1f} уд/мин")
+        if variability < 3:
+            alerts.append(f" Низкая вариабельность: {variability:.1f}")
+        if accel_per_min < 0.1:  # менее 3 акцелераций за 30 минут
+            alerts.append(f" Отсутствие акцелераций: {accel_per_min:.2f}/мин")
+        if mean_uc > 25:
+            alerts.append(f" Гипертонус матки: {mean_uc:.1f}")
+
+        # === 2. ML-предсказание (если включено) ===
+        if self.use_ml_prediction and self.model is not None:
+            proba = self.model.predict_proba(feature_vec)[0]
+            hypoxia_prob = proba[1]
+            if hypoxia_prob > 0.7:  # порог можно настроить
+                alerts.append(f" ML: высокий риск гипоксии ({hypoxia_prob:.1%})")
+
+        # Вывод алертов
+        current_ts = window_data["timestamp"].iloc[-1]
+        if alerts and (current_ts - self.last_alert_time) > self.alert_buffer_sec:
+            print(f"\n[ALERT at {current_ts:.1f} sec]")
+            for a in alerts:
+                print(a)
+            print("-" * 50)
+            self.last_alert_time = current_ts
+
+    def _trigger_alert(self, message):
+        """Вспомогательный метод для вывода алертов (на случай ошибок)."""
+        print(f"\n[ALERT] {message}\n" + "-" * 50)
+
+    # --- Вспомогательные методы (без изменений) ---
+    def _count_accel_decel(self, fhr):
+        if len(fhr) < int(15 * self.fs):
+            return 0, 0
+        accelerations = decelerations = 0
+        window = int(15 * self.fs)
+        step = int(5 * self.fs)
+        for i in range(0, len(fhr) - window, step):
+            seg = fhr[i:i+window]
+            delta = np.max(seg) - np.min(seg)
+            if delta >= 15:
+                if np.argmax(seg) > np.argmin(seg):
+                    decelerations += 1
+                else:
+                    accelerations += 1
+        return accelerations, decelerations
+
+    def _count_uc_per_min(self, uc, duration_min):
+        if np.ptp(uc) < 5:
+            return 0
+        threshold = max(np.percentile(uc, 75), np.mean(uc) + 0.5 * np.std(uc))
+        uc_bin = (uc >= threshold).astype(int)
+        starts = np.where((uc_bin[1:] == 1) & (uc_bin[:-1] == 0))[0]
+        return len(starts) / duration_min if duration_min > 0 else 0
+
+    def get_current_data(self):
+        return self.data.copy()
