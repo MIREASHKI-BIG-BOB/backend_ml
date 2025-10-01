@@ -1,0 +1,19 @@
+# FastAPI и WebSocket
+fastapi
+uvicorn[standard]
+websockets
+pydantic
+
+# Machine Learning
+scikit-learn
+numpy
+pandas
+joblib
+
+# Утилиты
+python-dotenv
+python-multipart
+
+# Логирование и мониторинг
+colorlog
+

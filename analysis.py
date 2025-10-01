@@ -243,6 +243,7 @@ class LiveCTGAnalyzer:
         self.window_minutes = window_minutes
         self.use_ml_prediction = use_ml_prediction
         self.model = None
+        self.last_prediction = None
 
         if self.use_ml_prediction:
             if model_path is None:
@@ -328,11 +329,20 @@ class LiveCTGAnalyzer:
             alerts.append(f" Гипертонус матки: {mean_uc:.1f}")
 
         # === 2. ML-предсказание (если включено) ===
+        hypoxia_prob = 0.0
         if self.use_ml_prediction and self.model is not None:
             proba = self.model.predict_proba(feature_vec)[0]
             hypoxia_prob = proba[1]
             if hypoxia_prob > 0.7:  # порог можно настроить
                 alerts.append(f" ML: высокий риск гипоксии ({hypoxia_prob:.1%})")
+
+        # Сохраняем последний результат для API
+        self.last_prediction = {
+            "hypoxia_probability": float(hypoxia_prob),
+            "features": features,
+            "alerts": alerts,
+            "timestamp": current_time
+        }
 
         # Вывод алертов
         current_ts = window_data["timestamp"].iloc[-1]
@@ -374,3 +384,62 @@ class LiveCTGAnalyzer:
 
     def get_current_data(self):
         return self.data.copy()
+
+    def get_prediction(self):
+        """
+        Возвращает последнее предсказание для использования в API.
+        
+        :return: dict с результатами предсказания или None
+        """
+        if self.last_prediction is None:
+            return None
+        
+        # Формируем полный ответ с дополнительными полями
+        pred = self.last_prediction.copy()
+        hypoxia_prob = pred["hypoxia_probability"]
+        
+        # Определяем уровень риска
+        if hypoxia_prob > 0.8:
+            risk_level = "critical"
+        elif hypoxia_prob > 0.5:
+            risk_level = "high"
+        elif hypoxia_prob > 0.3:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+        
+        # Генерируем рекомендации
+        recommendations = []
+        if risk_level == "critical":
+            recommendations.extend([
+                "⚠️ СРОЧНО: Требуется немедленная консультация врача",
+                "Рекомендуется изменение положения матери",
+                "Рассмотреть кислородотерапию",
+                "Подготовиться к возможному экстренному родоразрешению"
+            ])
+        elif risk_level == "high":
+            recommendations.extend([
+                "Усилить мониторинг",
+                "Уведомить дежурного врача",
+                "Рассмотреть изменение положения матери"
+            ])
+        elif risk_level == "medium":
+            recommendations.extend([
+                "Продолжить наблюдение",
+                "Провести повторную оценку через 15-20 минут"
+            ])
+        else:
+            recommendations.append("Продолжить рутинный мониторинг")
+        
+        # Вычисляем уверенность (на основе количества данных)
+        data_ratio = min(len(self.data) / self.window_samples, 1.0)
+        confidence = data_ratio * 0.9 + 0.1  # минимум 0.1
+        
+        return {
+            "hypoxia_probability": hypoxia_prob,
+            "risk_level": risk_level,
+            "alerts": pred["alerts"],
+            "confidence": confidence,
+            "recommendations": recommendations,
+            "features": pred["features"]
+        }
