@@ -48,13 +48,21 @@ class SensorData(BaseModel):
     BPMChild: float  # ЧСС плода
     uterus: float    # Тонус матки
     spasms: float    # Спазмы (не используется в текущей модели)
+    
+    class Config:
+        populate_by_name = True
 
 
 class MessageData(BaseModel):
-    """Входящее сообщение от Go-бэкенда"""
+    """Входящее сообщение от Go-бэкенда (плоская структура)"""
     sensorID: str
     secFromStart: float
-    data: SensorData
+    BPMChild: float  # ЧСС плода (с большой буквы как в Go!)
+    uterus: float    # Тонус матки
+    spasms: float = 0.0  # Спазмы (опционально)
+    
+    class Config:
+        populate_by_name = True
 
 
 class PredictionResult(BaseModel):
@@ -117,8 +125,8 @@ async def websocket_ctg_analysis(websocket: WebSocket):
                 # Добавляем данные в анализатор
                 analyzer.add_data(
                     timestamp=message.secFromStart,
-                    fhr=message.data.BPMChild,
-                    uc=message.data.uterus
+                    fhr=message.BPMChild,
+                    uc=message.uterus
                 )
                 
                 # Получаем предсказание
@@ -143,11 +151,18 @@ async def websocket_ctg_analysis(websocket: WebSocket):
                     prediction = None
                     status = "ok"
                 
+                # Создаем объект SensorData для ответа
+                sensor_data = SensorData(
+                    BPMChild=message.BPMChild,
+                    uterus=message.uterus,
+                    spasms=message.spasms
+                )
+                
                 # Отправляем ответ обратно
                 response = ResponseData(
                     sensorID=sensor_id,
                     secFromStart=message.secFromStart,
-                    data=message.data,
+                    data=sensor_data,
                     prediction=prediction,
                     status=status,
                     timestamp=datetime.utcnow().isoformat()
