@@ -110,9 +110,16 @@ async def websocket_ctg_analysis(websocket: WebSocket):
                 sensor_id = message.sensorID
                 current_sensor_id = sensor_id
                 
-                # Создаем или получаем анализатор для этого сенсора
+                # НОВОЕ ИССЛЕДОВАНИЕ: Если время близко к нулю - пересоздаём анализатор нахуй!
+                # Это гарантирует чистую модель для каждого нового исследования
+                if message.secFromStart < 5.0:  # Первые 5 секунд = новое исследование
+                    if sensor_id in active_analyzers:
+                        logger.info(f"🔄 NEW STUDY! Recreating analyzer for sensor {sensor_id}")
+                        del active_analyzers[sensor_id]
+
+                # Создаём анализатор если его нет
                 if sensor_id not in active_analyzers:
-                    logger.info(f"Creating new analyzer for sensor {sensor_id}")
+                    logger.info(f"Creating fresh analyzer for sensor {sensor_id}")
                     active_analyzers[sensor_id] = LiveCTGAnalyzer(
                         model_path="hypoxia_model.joblib",
                         fs=4,  # 4 Гц по умолчанию
